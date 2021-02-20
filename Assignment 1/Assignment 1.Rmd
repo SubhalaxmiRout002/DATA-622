@@ -1,0 +1,623 @@
+---
+title: "Assignment 1 (Logistic Regression) "
+date: 02/19/2021
+author: Subhalaxmi Rout
+output:
+  prettydoc::html_pretty: 
+    theme: tactile
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+### Instruction
+
+Let’s use the Penguin dataset for our assignment. To learn more about the dataset, please visit:
+https://allisonhorst.github.io/palmerpenguins/articles/intro.html
+
+For this assignment, let us use ‘species’ as our outcome or the dependent variable.
+
+$1.$ Logistic Regression with a binary outcome. (40) <br>
+
+$a.$ The penguin dataset has ‘species’ column. Please check how many categories
+you have in the species column. Conduct whatever data manipulation you need
+to do to be able to build a logistic regression with binary outcome. Please explain
+your reasoning behind your decision as you manipulate the outcome/dependent
+variable (species). <br>
+
+$b.$ Please make sure you are evaluating the independent variables appropriately in
+deciding which ones should be in the model. <br>
+
+$c.$ Provide variable interpretations in your model. <br>
+
+
+$2.$ For your model from #1, please provide: AUC, Accuracy, TPR, FPR, TNR, FNR (20)
+
+$3.$ Multinomial Logistic Regression. (40)
+
+$a.$ Please fit it a multinomial logistic regression where your outcome variable is
+‘species’.
+
+$b.$ Please be sure to evaluate the independent variables appropriately to fit your
+best parsimonious model.
+
+$c.$ Please be sure to interpret your variables in the model.
+
+$4.$ Extra credit: what would be some of the fit statistics you would want to evaluate for
+your model in question #3? Feel free to share whatever you can provide. (10)
+
+#### Load libraries
+
+```{r}
+library(palmerpenguins)
+library(tibble)
+library(DT)
+library(dplyr)
+library(explore)
+library(ggplot2)
+library(knitr)
+library(caTools)
+library(stats)
+library(pROC)
+library(nnet)
+```
+
+
+
+<span style="color:darkgreen">
+**Solution**
+</span>
+
+```{r}
+penguine_data <- glimpse(penguins)
+DT::datatable(head(penguine_data,10))
+```
+
+The penguins dataset comes with the palmerpenguins package. It has 344 observations and 8 variables. The dataset shows measurements of penguins live on different islands in different years. Below image shows the description of flipper_length, bill_length, and bill_width.
+
+
+```{r, out.height=300, out.width=250, fig.align='center'}
+knitr::include_graphics("https://raw.githubusercontent.com/SubhalaxmiRout002/DATA-622/main/Assignment%201/Screen%20Shot%202021-02-19%20at%205.54.09%20AM.png")
+```
+
+
+```{r}
+# size of data
+dim(penguine_data)
+
+# shows Summary and null values 
+summary(penguine_data)
+```
+
+Data contains total 19 NAs, most NAs is sex i.e 11 and flipper_length_mm, body_mass_g, bill_depth_mm, and bill_length_mm contain 8 NAs. 
+
+### EDA 
+
+
+```{r}
+# Count penguins for each species / island
+penguins %>% group_by(island, species, .drop = FALSE)
+  
+ggplot(penguins) + aes(x = island, fill = species) +
+  geom_bar(alpha = 0.8) +
+  scale_fill_manual(values = c("indianred2","forestgreen","dodgerblue"),
+                    guide = FALSE) +
+  theme_minimal() +
+  facet_wrap(~species, ncol = 1) +
+  coord_flip()
+```
+
+Chinstrap and Gentoo are located on seperate islands.
+
+```{r, out.height=500, out.width=600}
+penguine_data %>% explore_all(target = species)
+```
+
+The density plot shows interesting facts, 
+
+*  bill_length plot shows similarity between Chinstrap and Gentoo but separates Adelie. However, we can see bill_length density plot (Chinstrap, Gentoo) of has two peak points, mean data is not normally distributed.
+* bill_depth plot shows similarity between Chinstrap and Adelie but separates Gentoo.
+* Similarly, flipper_length_mm and body_mass_g plots shows similarity between Chinstrap and Adelie but separates Gentoo.
+
+Distribution of bill_length_mm of all penguine species.
+
+```{r}
+hist(penguine_data$bill_length_mm[penguine_data$species=='Gentoo'],col = 'forestgreen'
+     , xlab = "bill_length_mm"
+     , main = "Gentoos' distribution of bill_length_mm")
+
+hist(penguine_data$bill_length_mm[penguine_data$species=='Chinstrap'],col = 'indianred2'
+     , xlab = "bill_length_mm"
+     , main = "Chinstraps' Histogram of bill_length_mm")
+
+hist(penguine_data$bill_length_mm[penguine_data$species=='Adelie'],col = 'dodgerblue'
+     , xlab = "bill_length_mm"
+     , main = "Adelies' Histogram of bill_length_mm")
+
+```
+
+Hostogram of Adelie seems normally distibuted but other species skewed. 
+
+Lets draw a decision tree:
+
+```{r}
+penguine_data %>% explain_tree(target = species)
+```
+
+Above trees shows, 
+
+* if flipper_length_mm < 207 then Gentoo
+* if flipper_length_mm >= 207 then Adile
+* if bill_length_mm < 43 then Chinstrap else Adeli
+
+Now let’s take a closer look at these variables:
+
+```{r, out.height=500, out.width=600}
+# Flipper length vs. bill length
+flipper_bill <- ggplot(data = penguine_data,
+                         aes(x = flipper_length_mm,
+                             y = bill_length_mm)) +
+  geom_point(aes(color = species,
+                 shape = species),
+             size = 3,
+             alpha = 0.8) +
+  theme_minimal() +
+  scale_color_manual(values = c("indianred2","forestgreen","dodgerblue")) +
+  labs(title = "Flipper and bill length",
+       x = "Flipper length (mm)",
+       y = "Bill length (mm)",
+       color = "Penguin species",
+       shape = "Penguin species") +
+  theme(legend.position = c(0.85, 0.15),
+        legend.background = element_rect(fill = "white", color = NA),
+        plot.title = element_text(hjust = 0.5, size = 15, colour = "black"),
+        plot.title.position = "plot",
+        plot.caption = element_text(hjust = 0, face= "italic"),
+        plot.caption.position = "plot")
+
+flipper_bill
+```
+
+Above plot does not show a clear cluster of species. The density plots shows body_mass and flipper_length_mm of Adelie and Chinstrap different than Gentoo, so have a look on body_mass_g and flipper_length_mm.
+
+```{r, out.height=500, out.width=600}
+ggplot(data = penguine_data, aes(x = body_mass_g, y = flipper_length_mm, col = species)) +
+    geom_point() + 
+    theme_bw() + 
+    labs(title = "Flipper Length and Body Mass of the Palmer Penguins") +
+  theme(legend.position = c(0.85, 0.15),
+        legend.background = element_rect(fill = "white", color = NA),
+        plot.title = element_text(hjust = 0.5, size = 15, colour = "black"),
+        plot.title.position = "plot",
+        plot.caption = element_text(hjust = 0, face= "italic"),
+        plot.caption.position = "plot")
+```
+
+
+This plot clearly shows a positive relation between flippers_length and body_mass. Moreover, Adelie and Chinstrap cluster together, and Gentoo looks separate from the cluster. 
+
+### Logistic Regression with a binary outcome
+
+Binary logistic regression requires the dependent variable to be binary.
+
+```{r}
+# remove NAS
+penguine_data_2 <- penguine_data[complete.cases(penguine_data), ]
+
+# size of data
+dim(penguine_data_2)
+
+
+#summary(penguine_data_2)
+```
+
+Given, Species as dependent variable, species has 3 categories i.e Adelie,Chinstrap, and Gentoo. Adelie,Chinstrap combines in one cluster due to body_mass and flipper_length and  Gentoo in other cluster 
+
+```{r}
+# convert to dummy
+penguine_data_2$ade_chin <-  ifelse(penguine_data_2$species == 'Adelie' | penguine_data_2$species == 'Chinstrap', 1, 0)
+
+
+# Drop Specises column from data
+penguine_data_2 <- penguine_data_2 %>% select(-c(species) ) 
+
+# View data
+DT::datatable(head(penguine_data_2,10))
+
+table(penguine_data_2$ade_chin)
+
+```
+
+New species ade_chin(combination of Adelie and Chinstrap) has 214 rows and Guntoo has 119 rows. Data is not 
+balanced. This case I will go for under sampling. 
+
+#### Under Sampling :
+
+Under-sampling balances the dataset by reducing the size of the abundant class. This method is used when quantity of data is sufficient. By keeping all samples in the rare class and randomly selecting an equal number of samples in the abundant class, a balanced new dataset can be retrieved for further modelling.
+
+Take 199 random sample data from ade_chin, to make the balance. So, current data set have 119 rows from each species i.e ade_chin and Gentoo.
+
+Split the data in to 2 sets train and test, assign 80% of data to train and 20% of data to test. 
+
+```{r}
+set.seed(1)
+smpl1 <- penguine_data_2 %>% filter(ade_chin == 1) %>% sample_n(size = 119)
+smpl2 <- penguine_data_2 %>% filter(ade_chin == 0) 
+smpl_119 <- rbind(smpl1, smpl2)
+```
+```{r}
+# Data split
+
+sample = sample.split(smpl_119$ade_chin, SplitRatio = 0.80)
+
+penguine_train = subset(smpl_119, sample == TRUE)
+penguine_test = subset(smpl_119, sample == FALSE)
+
+dim(penguine_train)
+dim(penguine_test)
+
+```
+
+For first binomial model, choose flipper_length_mm ,  body_mass_g , bill_length_mm , and bill_depth_mm. I do not select other features such as island, year, and sex. Do not find relevant impact on these features for prediction. 
+
+#### Binomial Model 1
+
+```{r}
+
+bi_model1 <- glm(ade_chin ~  flipper_length_mm + body_mass_g + bill_length_mm + bill_depth_mm
+                 , data = penguine_train, family=binomial(link="logit"))
+summary(bi_model1)
+
+```
+
+#### Iinterpretation
+
+Showing less Null variance : 0.02634, Residual deviance: 0.000036989, AIC: 10. 
+
+Equation:
+
+log(p/1-p) =  1.590e+02 - flipper_length_mm * 1.374e+00 - body_mass_g * 1.578e-02
++ bill_length_mm * 1.389e-01 + bill_depth_mm * 1.140e+01
+
+
+Residual deviance is calculated from the model having all the features.On comarison with Linear Regression, think of residual deviance as residual sum of square (RSS) and null deviance as total sum of squares (TSS). The larger the difference between null and residual deviance, better the model.
+
+The model with the lowest AIC will be relatively better. Practically, AIC is always given preference above deviance to evaluate model fit.
+
+#### Binomial Model 2
+
+Remove bill_length_mm due to not normally distributed. 
+
+```{r}
+bi_model2 <- glm(ade_chin ~  flipper_length_mm  + body_mass_g + bill_depth_mm
+                 , data = penguine_train, family=binomial(link="logit"))
+
+summary(bi_model2)
+```
+
+####  Interpretation
+
+Showing less Null variance : 0.02634, Residual deviance: 0.000036989, AIC: 8.
+
+Equation:
+
+log(p/1-p) =  1.688e+02 - flipper_length_mm * 1.374e+00 - 
+body_mass_g * 1.581e-02 + bill_depth_mm * 1.119e+01
+
+#### Binomial Model 3
+
+Remove body_mass_g due to positively corre-lated with flipper_length_mm.
+
+```{r}
+bi_model3 <- glm(ade_chin ~  flipper_length_mm  + bill_depth_mm
+                 , data = penguine_train, family=binomial(link="logit"))
+
+summary(bi_model3)
+```
+
+#### Interpretation
+
+Showing less Null variance : 0.02634, Residual deviance: 0.000048487, AIC: 6.
+
+Equation:
+
+log(p/1-p) = 280.510 - flipper_length_mm * 2.434 + bill_depth_mm * 13.360
+
+
+Out of these 3 models I select model 3 due to low AIC. 
+
+### Confusion Matrix (CM)
+
+Test the model using penguine_test. confusion matrix has True Positive (TP), False Positive (FP), False Negative(FN), and True Negative (TN).
+
+The confusion matrix avoids "confusion" by measuring the actual and predicted values in a tabular format.
+
+```{r}
+pred_3 <- predict(bi_model3,penguine_test) 
+pred_3 <- if_else(pred_3 > 0.5, 1, 0) 
+
+cm <- table(true = penguine_test$ade_chin, pred_3)
+
+TP <- cm[1]
+FP <- cm[2]
+FN <- cm[3]
+TN <- cm[4]
+```
+
+### AUC
+
+The area under the curve (AUC), also referred to as index of accuracy (A), represents the performance of the ROC curve. Higher the area, better the model. ROC is plotted between True Positive Rate (Y axis) and False Positive Rate (X Axis). 
+
+```{r}
+plot(roc(penguine_test$ade_chin, pred_3, direction="<"),col="blue", lwd=3, main="ROC Curve")
+```
+
+#### Accuracy 
+
+It determines the overall predicted accuracy of the model. It is calculated as Accuracy  = (True Positives + True Negatives)/(True Positives + True Negatives + False Positives + False Negatives)
+
+```{r}
+accuracy <- (TP + TN)/(TN + FN + TP + FP)
+accuracy
+```
+
+#### True Positive Rate (TPR) 
+
+It indicates how many positive values, out of all the positive values, have been correctly predicted. The formula to calculate the true positive rate is (TP/TP + FN). Also, TPR =  1 - False Negative Rate. It is also known as Sensitivity or Recall.
+
+```{r}
+TPR = (TP)/(TP+FN)
+TPR
+```
+
+#### False Positive Rate (FPR)
+
+It indicates how many negative values, out of all the negative values, have been incorrectly predicted. The formula to calculate the false positive rate is (FP/FP + TN). Also, FPR = 1 - True Negative Rate.
+
+```{r}
+FPR = (FP)/(FP+TN)
+FPR
+```
+
+#### True Negative Rate (TNR)
+
+It indicates how many negative values, out of all the negative values, have been correctly predicted. The formula to calculate the true negative rate is (TN/TN + FP). It is also known as Specificity.
+
+
+```{r}
+TNR = (TN)/(FP+TN)
+TNR
+```
+
+#### False Negative Rate (FNR)
+
+It indicates how many positive values, out of all the positive values, have been incorrectly predicted. The formula to calculate false negative rate is (FN/FN + TP).
+
+```{r}
+FNR = (FN)/(FN+TP)
+FNR
+```
+
+Other metrics for model 3:
+
+```{r}
+#  Classification Error Rate
+CER = (FP+FN)/(TP+TN+FP+FN)
+CER
+
+# Precision
+Precision = (TP)/(TP+FP)
+Precision
+
+# F1 score
+F1 = 2*(Precision * TPR)/(Precision + TPR)
+F1
+```
+
+### Multinomial logistic regression
+
+Multinomial regression is an extension of binomial logistic regression. The algorithm allows us to predict a categorical dependent variable which has more than two levels. Like any other regression model, the multinomial output can be predicted using one or more independent variable. The independent variables can be of a nominal, ordinal or continuous type.
+
+
+Allocate number to the species:
+
+* Adelie = 1
+* Chinstrap = 2
+* Gentoo = 3
+
+```{r}
+penguine_data_3 <- penguine_data[complete.cases(penguine_data), ]
+#summary(penguine_data_3)
+penguine_data_3$species <- case_when(
+  penguine_data_3$species == "Adelie" ~ 1,
+  penguine_data_3$species == "Chinstrap" ~ 2,
+  penguine_data_3$species == "Gentoo" ~ 3
+)
+
+table(penguine_data_3$species)
+```
+
+Apply `dummy_cols()` automates the process, and is useful when you have many columns to general dummy variables from or with many categories within the column. This way we can het all numerical data for model. Split the data in to 2 sets i.e train set and test set and the ratio is  70% train and 30% test.
+
+```{r}
+set.seed(22)
+
+ind <- sample(2, nrow(penguine_data_3), replace = TRUE,
+              prob = c(0.7, 0.3))
+train <- penguine_data_3[ind == 1,]
+test <- penguine_data_3[ind == 2,]
+
+dim(train)
+dim(test)
+```
+
+```{r}
+train <- fastDummies::dummy_cols(train) %>% select (-c(island, sex, year))
+test <- fastDummies::dummy_cols(test) %>% select (-c(island, sex, year))
+
+train$species <- as.factor(train$species)
+test$species <- as.factor(test$species)
+
+train$species <- relevel(train$species, ref = "1")
+test$species <- relevel(test$species, ref = "1")
+
+```
+
+#### Multinomial Model 1
+
+Model with all variables
+
+````{r}
+mul_model1 <- multinom(species ~ ., data = train)
+summary(mul_model1)
+
+```
+
+#### Interpretaion
+
+From multinomial model 1, we can get 2 equations: 
+
+Eqn 1:
+
+ln[P(species = 2)/(species = 1)] = -90.37271 
++ bill_length_mm  * 1.193024 - bill_depth_mm * 9.19526 
+- flipper_length_mm * 1.300113 _ body_mass_g * 0.01892986
+- island_Biscoe * 52.31516 + island_Dream * 4.2585232
+- island_Torgersen * 42.31608 - sex_female * 18.490427
+- sex_male * 71.88229
+
+Eqn 2:
+
+ln[P(species = 3)/(species = 1)] = -14.66748 
++ bill_length_mm  * 9.790331 - bill_depth_mm * 17.77214 
+- flipper_length_mm * 1.672496 + body_mass_g * 0.05237551
++ island_Biscoe * 16.51737 - island_Dream * 0.2050357
+- island_Torgersen * 30.97981 + sex_female * 8.801406
+- sex_male * 23.46888
+
+
+To get the statistical significance variable perform 2 tail test. Below calculate p-value, if the valie is > 0.5 then that variable is not statistically significant. 
+
+```{r}
+z <- summary(mul_model1)$coefficients / summary(mul_model1)$standard.errors
+
+p <- 1 - pnorm(abs(z), 0, 1) * 2
+
+p
+```
+
+We can see, bill_depth_mm, island_Biscoe, island_Dream, island_Torgersen, sex_female, and sex_male have higher p-value.
+
+Next model we will exclude all these variables. 
+
+
+#### Model 2 : 
+
+Model with out  bill_depth_mm, island_Biscoe, island_Dream, island_Torgersen, sex_female, and sex_male
+
+```{r}
+mul_model2 <- multinom(species ~ bill_length_mm + flipper_length_mm + body_mass_g
+                       , data = train)
+summary(mul_model2)
+```
+
+
+#### Interpretaion
+
+From multinomial mul_model2, we can write the following equations:
+
+ln[P(species = 2)/(species = 1)] = -174.1776 + bill_length_mm * 15.0936970
+ - flipper_length_mm * 1.0568874 - body_mass_g * 0.075407128
+ 
+ ln[P(species = 3)/(species = 1)] = -203.1864 + bill_length_mm * 0.7861321
+ + flipper_length_mm * 0.6996343  + body_mass_g * 0.005863934
+ 
+
+Out of 2 Multinomial model, mul_model2 has low AIC, I will go with model 2. Apply prediction on both training and test dataset using model 2. 
+
+#### Extra Credit 
+
+We will see the confusion matric and caluclate accuracy for both train and test set. 
+
+```{r}
+pred_mul <- predict(mul_model2, train)
+
+# confusion matrix
+tab <- table(pred_mul, train$species)
+tab
+accuracy <- sum(diag(tab))/ sum(tab)
+accuracy
+```
+
+With training data confusion matrix shows 99.18% accuracy. Lets check the test data. 
+
+```{r}
+pred_mul_test <- predict(mul_model2, test)
+tab_2 <- table(pred_mul_test, test$species)
+tab_2
+test_accuracy <-  sum(diag(tab_2))/ sum(tab_2)
+test_accuracy
+```
+
+Test data also showing 96.59% accuracy. 
+
+Understand the performance of the model is important than model making. Lets see how our model is working. 
+
+Suppose, we do not apply any ML algo for model, this dataset will show 942.44 % accuracy for Adelie, 20% accuracy for Chinstrap , and 37.55 % accuracy for Gentoo. 
+
+```{r}
+n <- table(train$species)
+n/sum(n)
+```
+
+
+Lets see our training model performance:
+
+```{r}
+tab/colSums(tab)
+```
+
+Above matrix shows, species predicted correctly 
+
+Adelie = 99% 
+Chinstrap = 100 %
+Gentoo = 98.9%
+
+Which is quite good. Lets see test model performance.
+
+```{r}
+tab_2/colSums(tab_2)
+```
+
+Above matrix shows, species predicted correctly 
+
+Adelie = 92.8% 
+Chinstrap = 100 %
+Gentoo = 100%
+
+In train set Adelie prediction was 99% but in test set 92.8%. But Gentoo performance improves than train set. 
+
+I personally enjoy this assignment, and learn many new things!
+
+There is room for improvement for the model. If I get time I will do in future.
+
+#### Reference:
+
+https://cran.r-project.org/web/packages/explore/vignettes/explore_penguins.html
+
+https://www.hackerearth.com/practice/machine-learning/machine-learning-algorithms/logistic-regression-analysis-r/tutorial/
+
+https://medium.com/datadriveninvestor/confusion-matric-tpr-fpr-fnr-tnr-precision-recall-f1-score-73efa162a25f
+https://www.youtube.com/watch?v=S2rZp4L_nXo
+
+https://www.youtube.com/watch?v=oxRy2DMrOF4
+
+https://www.youtube.com/watch?v=11VY8CmNVDQ
+
