@@ -1,0 +1,486 @@
+---
+title: "Linear Discriminant Analysis, Quadratic Discriminant Analysis, and Naive Bayes"
+author: Subhalaxmi Rout
+output:
+  pdf_document: default
+  prettydoc::html_pretty: 
+    theme: tactile
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+### Instructions
+
+Use Penguine dataset for this assignment. Please use “Species” as your target variable. For this assignment, you may want to drop/ignore the variable “year”.
+
+Using the target variable, Species, please conduct:
+
+$(a.)$ Linear Discriminant Analysis (30 points):
+
+* You want to evaluate all the ‘features’ or dependent variables and see
+what should be in your model. Please comment on your choices.
+
+* Just a suggestion: You might want to consider exploring featurePlot
+on the caret package. Basically, you look at each of the
+features/dependent variables and see how they are different based on
+species. Simply eye-balling this might give you an idea about which
+would be strong ‘classifiers’ (aka predictors).
+
+* Fit your LDA model using whatever predictor variables you deem
+appropriate. Feel free to split the data into training and test sets
+before fitting the model.
+
+* Look at the fit statistics/ accuracy rates.
+
+### Linear Discriminant Analysis (LDA)
+
+Linear discriminant analysis is an extremely popular dimensionality reduction technique. Dimensionality reduction techniques have become critical in machine learning since many multi-dimensional datasets exist these days. 
+
+Multi-dimensional data is data that has multiple features which have a correlation with one another. Dimensionality reduction simply means plotting multi-dimensional data in just 2 or 3 dimensions.
+
+
+#### Load libraries
+
+```{r}
+library(palmerpenguins)
+library(stats)
+library(dplyr)
+library(PerformanceAnalytics)
+library(DT)
+library(tidyr)
+library(caret)
+library(e1071)
+library(kableExtra)
+library(caTools)
+library(MASS)
+library(devtools)
+library(ggord)
+library(klaR)
+library(naivebayes)
+```
+
+#### Load data
+
+Load the data from `palmerpenguins` library and drop year, sex and island columns from dataset.
+
+```{r}
+penguine_data <- glimpse(penguins)
+penguine_data <- penguine_data %>% dplyr::select(-c(year, island, sex))
+DT::datatable(head(penguine_data,5))
+```
+
+#### EDA
+
+Have a look on summary statistics. 
+
+```{r}
+summary(penguine_data)
+```
+
+We can see 8 NAs are present in the dataset. Remove NAs from data.
+
+```{r}
+penguine_data <- drop_na(penguine_data)
+
+```
+
+To see the variables co-related to each other plot a co-relation graph.
+
+```{r}
+my_data <- penguine_data[, c(2,3,4,5)]
+chart.Correlation(my_data, histogram=TRUE, pch=19)
+```
+
+Above plot shows:
+
+* Positive co-relation between body_mass_g and flipper_length_mm
+* Negative Co-relation between bill_depth_mm and flipper_length_mm
+* Positive co-relation between bill_length_mm and flipper_length_mm
+* Positive co-relation between body_mass_g and bill_length_mm
+
+#### Split data
+
+Split data in to 2 sets train and test. Train data and Test data ration is 70:30.
+
+```{r}
+set.seed(123)
+
+
+# Data split
+sample = sample.split(penguine_data$species, SplitRatio = 0.70)
+
+penguine_train = subset(penguine_data, sample == TRUE)
+penguine_test = subset(penguine_data, sample == FALSE)
+
+dim(penguine_train)
+dim(penguine_test)
+
+```
+
+Train test has `r dim(penguine_train)[1]` and Test test has `r dim(penguine_test)[1]` rows.
+
+#### LDA for all variables
+
+The linear Discriminant analysis estimates the probability that a new set of inputs belongs to every class. In our dataset dependant variable is `species` and all other 4 variables/fields are independent. 
+
+Load library `MASS` to perform LDA. Apply LDA on train dataset and look at the model structure. 
+
+```{r}
+
+lda_all <- lda(species ~ ., data = penguine_train)
+lda_all
+```
+
+Above model shows, *Prior probabilities of groups:* 
+
+* 44.2%  belongs to Adelie in training data
+* 20% belongs to Chinstrap in training data
+* 35.9% belongs to Gentoo in training data
+
+*Group means:* <br>
+This table shows for ecah species and each variables we have averages. For examaple, Adelie's average bill_length_mm is 38.7.
+
+*Coefficients of linear discriminants:* <br>
+
+The first discreminant function is a linear combination of the four variables. <br>
+Example: $0.089443430 * bill_length_mm - 0.985577100 * bill_depth_mm + 0.082416295 * flipper_length_mm + 0.001263067 * body_mass_g$
+
+*Proportion of trace:* <br>
+Percentage separations achieved by the first discreminant function is 87%. Percentage separations achieved by the second discreminant function is 13%. 
+
+#### LDA for body mass and bill depth
+
+From EDA, we relation between body mass and flipper length, and body mass and bill length. So to avoid co-linearty exclude body mass and flipper length variables from the model.
+
+```{r}
+lda_2 <- lda(species ~ bill_length_mm + bill_depth_mm, data = penguine_train)
+lda_2
+```
+
+
+*Proportion of trace:* <br>
+Percentage separations achieved by the first discreminant function is 99.9%. Percentage separations achieved by the second discreminant function is 0.1%. Which is quite higher than our first model. 
+
+#### LDA Advantage
+
+Histogram and Bi-plot provides useful insights and are helpful for interpretaion of the analysis.
+
+##### bi-Plot
+
+```{r}
+# predict for train data
+P_lda_all <- predict(lda_all, penguine_train)
+P_lda_2 <- predict(lda_2, penguine_train)
+
+# histigram of all variables lda models
+ldahist(data = P_lda_all$x[,1], g = penguine_train$species)
+```
+
+We see using our first model there is little over-lap between Adile and Chinstrap
+
+```{r}
+# histigram of 2nd lda models
+ldahist(data = P_lda_2$x[,1], g = penguine_train$species)
+```
+
+This model separates 3 species better than first model. Very few over-lap we see between species.
+
+
+##### Bi-plots
+
+```{r}
+
+ggord(lda_all, penguine_train$species, ylim = c(-6,5), xlim = c(-8,8))
+ggord(lda_2, penguine_train$species, ylim = c(-5,5), xlim = c(-8,8))
+```
+
+##### Partition Plot
+
+```{r}
+
+partimat(species ~ ., data = penguine_train, method = 'lda')
+```
+
+This plot gives classification of each and every observation in the training dataset based on LDA method. 
+
+##### Confusion matrix and accuracy training data 
+
+LDA Model 1 with all variables
+
+```{r}
+p1_train_all <- predict(lda_all, penguine_train)$class
+tab_train_all <- table(Predicted = p1_train_all, Actual = penguine_train$species)
+tab_train_all
+```
+
+There are 3 mis-classification occures in Chinstrap. 
+
+```{r}
+lda_train_accuracy_all <- sum(diag(tab_train_all))/sum(tab_train_all) * 100
+lda_train_accuracy_all
+```
+
+Accuracy in training data : `r lda_train_accuracy_all`
+
+##### Confusion matrix and accuracy for test data
+
+LDA Model 1 with all variables
+
+```{r}
+p1_test_all <- predict(lda_all, penguine_test)$class
+tab_test_all <- table(Predicted = p1_test_all, Actual = penguine_test$species)
+tab_test_all
+```
+
+There are total 2 mis-classification occures in test data. 
+
+```{r}
+lda_test_accuracy_all <- sum(diag(tab_test_all))/sum(tab_test_all) * 100
+lda_test_accuracy_all
+```
+
+Accuracy in test data : `r lda_test_accuracy_all`
+
+##### Confusion matrix and accuracy training data (LDA Model 2)
+
+LDA Model 2 with two variables
+
+```{r}
+p1_train_2 <- predict(lda_2, penguine_train)$class
+tab_train_2 <- table(Predicted = p1_train_2, Actual = penguine_train$species)
+tab_train_2
+```
+
+There are 8 mis-classification occures in Chinstrap and Adile. 
+
+```{r}
+lda_train_accuracy_2 <- sum(diag(tab_train_2))/sum(tab_train_2) * 100
+lda_train_accuracy_2
+```
+
+Accuracy in training data : `r lda_train_accuracy_2`
+
+##### Confusion matrix and accuracy for test data (LDA model 2)
+
+LDA Model 2 with two variables
+
+```{r}
+p1_test_2 <- predict(lda_2, penguine_test)$class
+tab_test_2 <- table(Predicted = p1_test_2, Actual = penguine_test$species)
+tab_test_2
+```
+
+There are total 4 mis-classification occures in test data. 
+
+```{r}
+lda_test_accuracy_2 <- sum(diag(tab_test_2))/sum(tab_test_2) * 100
+lda_test_accuracy_2
+```
+
+Accuracy in test data : `r lda_test_accuracy_2`
+
+### Quadratic Discriminant Analysis
+
+$(a)$ Same steps as above to consider
+
+For QDA use same `MASS` package to perform analysis. 
+
+First we will build the model, then calculate the prediction of train and test data and accuracy. QDA will create 2 models i.e one with 4 variable and another one with bill length and bill depth.  
+
+##### QDA model building 
+
+With all 4 variables 
+
+```{r}
+qda_all <- qda(species ~ ., data = penguine_train)
+qda_all
+```
+
+With 2 variables 
+
+```{r}
+qda_2 <- qda(species ~ bill_length_mm + bill_depth_mm, data = penguine_train)
+qda_2
+```
+
+##### Partition Plot
+
+```{r}
+partimat(species ~ ., data = penguine_train, method = 'qda')
+```
+
+This plot gives classification of each and every observation in the training dataset based on QDA method. 
+
+
+##### Confusion matrix and accuracy training data 
+
+QDA Model  with all variables
+
+```{r}
+p2_train_all <- predict(qda_all, penguine_train)$class
+tab2_train_all <- table(Predicted = p2_train_all, Actual = penguine_train$species)
+tab2_train_all
+```
+
+There are 3 mis-classification occures in Chinstrap. 
+
+```{r}
+qda_train_accuracy_all <- sum(diag(tab2_train_all))/sum(tab2_train_all) * 100
+qda_train_accuracy_all
+```
+
+Accuracy in training data : `r qda_train_accuracy_all`
+
+##### Confusion matrix and accuracy for test data
+
+QDA Model with all variables
+
+```{r}
+p2_test_all <- predict(qda_all, penguine_test)$class
+tab2_test_all <- table(Predicted = p2_test_all, Actual = penguine_test$species)
+tab2_test_all
+```
+
+There are total 2 mis-classification occures in test data. 
+
+```{r}
+qda_test_accuracy_all <- sum(diag(tab2_test_all))/sum(tab2_test_all) * 100
+qda_test_accuracy_all
+```
+
+Accuracy in test data : `r qda_test_accuracy_all`
+
+
+##### Confusion matrix and accuracy training data (QDA Model 2)
+
+QDA Model 2 with two variables
+
+```{r}
+p2_train_2 <- predict(qda_2, penguine_train)$class
+tab2_train_2 <- table(Predicted = p2_train_2, Actual = penguine_train$species)
+tab2_train_2
+```
+
+There are 8 mis-classification occures in all species. 
+
+```{r}
+qda_train_accuracy_2 <- sum(diag(tab2_train_2))/sum(tab2_train_2) * 100
+qda_train_accuracy_2
+```
+
+Accuracy in training data : `r qda_train_accuracy_2`
+
+##### Confusion matrix and accuracy for test data (QDA model 2)
+
+QDA Model 2 with two variables
+
+```{r}
+p2_test_2 <- predict(qda_2, penguine_test)$class
+tab2_test_2 <- table(Predicted = p2_test_2, Actual = penguine_test$species)
+tab2_test_2
+```
+
+There are total 3 mis-classification occures in test data. 
+
+```{r}
+qda_test_accuracy_2 <- sum(diag(tab2_test_2))/sum(tab2_test_2) * 100
+qda_test_accuracy_2
+```
+
+Accuracy in test data : `r qda_test_accuracy_2`
+
+
+
+### Naive Bayes
+
+$(a)$ Same steps as above to consider
+
+Naive Bayes algorithem is based on Bayes theorm. Mathematical expression :
+
+$$P(A|B) = \frac{P(A) * P(B|A)}{P(B)}$$
+
+To develop a naive bayes classigication model we need to make sure that the independant variables are not highly co-related. From EDA, we see there are co-relation exist between flipp_length and body mass. So exclude flipper length variable for NB model.
+
+
+```{r}
+
+NB <- naive_bayes(species ~ bill_length_mm + bill_depth_mm + body_mass_g, data = penguine_train)
+NB
+```
+
+##### Confusion matrix and accuracy for train data
+
+Calculate Confusion Matrix and accuracy for training data using NB model
+
+```{r}
+p3_train <- predict(NB, penguine_train)
+tab3_train <- table(Predicted = p3_train, Actual = penguine_train$species)
+tab3_train
+```
+
+There are 6 mis-classification occures in train data. 
+
+```{r}
+NB_train_accuracy <- sum(diag(tab3_train))/sum(tab3_train) * 100
+NB_train_accuracy
+```
+
+Accuracy in training data : `r NB_train_accuracy`
+
+##### Confusion matrix and accuracy for test data
+
+Calculate Confusion Matrix and accuracy for training data using NB model
+
+```{r}
+p3_test <- predict(NB, penguine_test)
+tab3_test <- table(Predicted = p3_test, Actual = penguine_test$species)
+tab3_test
+```
+
+There are 4 mis-classification occured test data.
+
+```{r}
+NB_test_accuracy <- sum(diag(tab3_test))/sum(tab3_test) * 100
+NB_test_accuracy
+```
+
+Accuracy in test data : `r NB_test_accuracy`
+
+
+### $(d.)$ Comment on the models fits/strength/weakness/accuracy for all these three
+models that you worked with
+
+We find out confusion matrix and accuracy of all 5 models. Compair all model based on F1, Sensitivity and Specificity.
+
+Matrix result of all 5 models 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+cm_lda_all <- confusionMatrix(penguine_test$species, as.factor(p1_test_all))
+kable(cm_lda_all$byClass) %>% kable_styling(bootstrap_options = "basic", position = "center")
+cm_lda_2 <- confusionMatrix(penguine_test$species, as.factor(p1_test_2))
+kable(cm_lda_2$byClass) %>% kable_styling(bootstrap_options = "basic", position = "center")
+cm_qda_all <- confusionMatrix(penguine_test$species, as.factor(p2_test_all))
+kable(cm_qda_all$byClass) %>% kable_styling(bootstrap_options = "basic", position = "center")
+cm_qda_2 <- confusionMatrix(penguine_test$species, as.factor(p2_test_2))
+kable(cm_qda_2$byClass) %>% kable_styling(bootstrap_options = "basic", position = "center")
+cm_nb <- confusionMatrix(penguine_test$species, as.factor(p3_test))
+kable(cm_nb$byClass) %>% kable_styling(bootstrap_options = "basic", position = "center")
+```
+
+From matrix result we see, LDA and QDA performed well than Naive Bayes. Naive Bayes performed well in normalized data, however this dataset is not normalized. I will go the QDA model 2 due to high accuract, specificity, Sensitivity, and F1. 
+
+
+
+References:
+
+LDA: https://www.youtube.com/watch?v=WUCnHx0QDSI
+
+Naive bayes: https://www.youtube.com/watch?v=RLjSQdcg8AM&list=RDCMUCuWECsa_za4gm7B3TLgeV_A&index=4
